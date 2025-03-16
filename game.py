@@ -121,6 +121,14 @@ def review_mode(user_id):
         st.session_state.pop("review_index")
         st.session_state.pop("score")
 
+def ai_generate_hint(question, correct_answer):
+    prompt = f"Provide a short hint for the question: '{question}' without revealing the answer."
+    response = client.chat.completions.create(model="gpt-4",
+    messages=[{"role": "system", "content": "You are an AI that provides helpful hints for quiz questions."},
+              {"role": "user", "content": prompt}])
+    return response.choices[0].message.content.strip()
+
+
 def daily_challenge(user_id):
     st.subheader("Daily Challenge Mode")
     flashcards = get_flashcards(user_id)
@@ -131,22 +139,41 @@ def daily_challenge(user_id):
     if "challenge_index" not in st.session_state:
         st.session_state["challenge_index"] = 0
         st.session_state["score"] = 0
+        st.session_state["lives"] = 5  # 初始生命值
+        st.session_state["hint_count"] = 3  # 三次提示机会
+        st.session_state["correct_streak"] = 0  # 连续正确计数
 
-    if st.session_state["challenge_index"] < len(flashcards):
+    if st.session_state["challenge_index"] < len(flashcards) and st.session_state["lives"] > 0:
         card = flashcards[st.session_state["challenge_index"]]
         question, correct_answer = card[1], card[2]
 
+        st.write(f"\U0001F497 Lives: {st.session_state['lives']}")
+        st.write(f"\U0001F4A1 Hints left: {st.session_state['hint_count']}")
         st.write(f"Question: {question}")
+
         user_answer = st.text_input("Type your answer:", key=f"answer_{st.session_state['challenge_index']}")
+
+        if st.button("Get Hint") and st.session_state["hint_count"] > 0:
+            hint = ai_generate_hint(question, correct_answer)
+            st.session_state["hint_count"] -= 1
+            st.info(f"Hint: {hint}")
 
         if st.button("Submit"):
             score = ai_grade_answer(user_answer, correct_answer)
             st.write(f"Score: {score}/10")
+            
             if score < 5:
                 st.error(f"Incorrect! The correct answer is: {correct_answer}")
+                st.session_state["lives"] -= 1  # 错误减少生命
+                st.session_state["correct_streak"] = 0  # 连续正确归零
             else:
                 st.success("Correct!")
                 st.session_state["score"] += 1
+                st.session_state["correct_streak"] += 1
+                
+                if st.session_state["correct_streak"] == 3:
+                    st.session_state["lives"] = min(st.session_state["lives"] + 1, 5)  # 生命恢复但不超过5
+                    st.session_state["correct_streak"] = 0  # 重新计数
 
             st.session_state["challenge_index"] += 1
             st.rerun()
@@ -154,6 +181,10 @@ def daily_challenge(user_id):
         st.write(f"Daily Challenge completed! Your score: {st.session_state['score']}/{len(flashcards)}")
         st.session_state.pop("challenge_index")
         st.session_state.pop("score")
+        st.session_state.pop("lives")
+        st.session_state.pop("hint_count")
+        st.session_state.pop("correct_streak")
+
 
 def main():
     init_db()
